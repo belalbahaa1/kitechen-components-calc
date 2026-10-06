@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'ج.م'; // غيّر رمز العملة حسب الحاجة
 
 const EMPTY_STATE = {
