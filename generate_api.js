@@ -35,10 +35,14 @@ export const isPositive = (val) => typeof val === 'number' && val > 0;
 export const cleanText = (val) => (typeof val === 'string' ? val.trim() : '');
 
 export const UNIT_TYPES = {
+  standard: { key: 'standard', label: 'القطع العادية', multiplier: 1.0, requiresLength: false, rule: 'العرض × الارتفاع' },
+  drawer: { key: 'drawer', label: 'الأدراج', multiplier: 2.0, requiresLength: false, rule: '(العرض × الارتفاع) × 2' },
+  glass: { key: 'glass', label: 'القطع الزجاجية', multiplier: 1.5, requiresLength: false, rule: '(العرض × الارتفاع) × 1.5' },
+  tall: { key: 'tall', label: 'الدواليب', multiplier: 1.0, requiresLength: false, rule: 'العرض × الارتفاع' },
+  lshape: { key: 'lshape', label: 'القطعة حرف L', multiplier: 1.0, requiresLength: true, rule: '(العرض + الطول) × الارتفاع' },
+  side: { key: 'side', label: 'الجوانب', multiplier: 0.7, requiresLength: false, rule: '(العرض × الارتفاع) × 0.70' },
   base: { key: 'base', label: 'وحدة سفلية', multiplier: 1.0, requiresLength: false, rule: 'العرض × الارتفاع' },
   wall: { key: 'wall', label: 'وحدة علوية', multiplier: 1.0, requiresLength: false, rule: 'العرض × الارتفاع' },
-  tall: { key: 'tall', label: 'دولاب طويل', multiplier: 1.0, requiresLength: false, rule: 'العرض × الارتفاع' },
-  lshape: { key: 'lshape', label: 'قطعة حرف L', multiplier: 1.0, requiresLength: true, rule: '(العرض + الطول) × الارتفاع' },
   island: { key: 'island', label: 'جزيرة', multiplier: 1.5, requiresLength: false, rule: '(العرض × الارتفاع) × 1.5' },
   custom: { key: 'custom', label: 'وحدة خاصة', multiplier: 1.2, requiresLength: false, rule: '(العرض × الارتفاع) × 1.2' },
 };
