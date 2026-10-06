@@ -51,34 +51,6 @@ const UNIT_TYPES = {
     requiresLength: false,
     rule: '(العرض × الارتفاع) × 0.70',
   },
-  base: {
-    key: 'base',
-    label: 'وحدة سفلية',
-    multiplier: 1,
-    requiresLength: false,
-    rule: 'العرض × الارتفاع',
-  },
-  wall: {
-    key: 'wall',
-    label: 'وحدة علوية',
-    multiplier: 1,
-    requiresLength: false,
-    rule: 'العرض × الارتفاع',
-  },
-  island: {
-    key: 'island',
-    label: 'جزيرة',
-    multiplier: 1.5,
-    requiresLength: false,
-    rule: '(العرض × الارتفاع) × 1.5',
-  },
-  custom: {
-    key: 'custom',
-    label: 'وحدة خاصة',
-    multiplier: 1.2,
-    requiresLength: false,
-    rule: '(العرض × الارتفاع) × 1.2',
-  },
 };
 
 let materials = [];

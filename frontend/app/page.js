@@ -38,10 +38,6 @@ const TYPE_STYLES = {
   tall: 'border-violet-400/25 bg-violet-950/50 text-violet-200',
   lshape: 'border-emerald-400/25 bg-emerald-950/50 text-emerald-200',
   side: 'border-rose-400/25 bg-rose-950/50 text-rose-200',
-  base: 'border-amber-400/25 bg-amber-950/50 text-amber-200',
-  wall: 'border-sky-400/25 bg-sky-950/50 text-sky-200',
-  island: 'border-teal-400/25 bg-teal-950/50 text-teal-200',
-  custom: 'border-indigo-400/25 bg-indigo-950/50 text-indigo-200',
 };
 
 // Accent palette used to visually distinguish each material section
