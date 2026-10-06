@@ -38,24 +38,31 @@ export const describeCalculation = (typeDef, rawW, rawH, rawL, unitStr) => {
   return typeDef.multiplier === 1 ? base : `(${base}) × ${typeDef.multiplier}`;
 };
 
+let inMemoryFallback = { materials: [], accessories: [] };
+
 export async function loadData() {
-  let data = { materials: [], accessories: [] };
   if (process.env.KV_REST_API_URL) {
-    data = (await kv.get('kitchen_state')) || data;
+    return (await kv.get('kitchen_state')) || { materials: [], accessories: [] };
   } else {
     try {
       const fileData = await fs.readFile(LOCAL_DB_PATH, 'utf8');
-      data = JSON.parse(fileData);
-    } catch (e) {}
+      return JSON.parse(fileData);
+    } catch (e) {
+      return inMemoryFallback;
+    }
   }
-  return data;
 }
 
 export async function saveData(data) {
   if (process.env.KV_REST_API_URL) {
     await kv.set('kitchen_state', data);
   } else {
-    await fs.writeFile(LOCAL_DB_PATH, JSON.stringify(data, null, 2));
+    try {
+      await fs.writeFile(LOCAL_DB_PATH, JSON.stringify(data, null, 2));
+    } catch (e) {
+      // Vercel is Read-Only, fallback to in-memory (ephemeral) if KV is missing
+      inMemoryFallback = data;
+    }
   }
 }
 
