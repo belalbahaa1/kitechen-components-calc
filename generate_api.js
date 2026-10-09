@@ -43,6 +43,14 @@ export const UNIT_TYPES = {
   side: { key: 'side', label: 'الجوانب', multiplier: 0.7, requiresLength: false, rule: '(العرض × الارتفاع) × 0.70' },
 };
 
+export const LEVEL_CONFIG = {
+  lower: { key: 'lower', label: 'القطع السفلية', shortLabel: 'سفلية' },
+  upper: { key: 'upper', label: 'القطع العلوية', shortLabel: 'علوية' },
+  third: { key: 'third', label: 'المستوى الثالث', shortLabel: 'مستوى ثالث' },
+};
+
+export const VALID_LEVELS = ['lower', 'upper', 'third'];
+
 export const describeCalculation = (typeDef, rawW, rawH, rawL, unitStr) => {
   const w = round(rawW, 2);
   const h = round(rawH, 2);
@@ -79,10 +87,32 @@ export async function buildState() {
 
   const sortedMaterials = [...materials].sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated));
 
+  const levelsSummary = {
+    lower: { key: 'lower', label: 'القطع السفلية', totalArea: 0, totalCost: 0, unitCount: 0 },
+    upper: { key: 'upper', label: 'القطع العلوية', totalArea: 0, totalCost: 0, unitCount: 0 },
+    third: { key: 'third', label: 'المستوى الثالث', totalArea: 0, totalCost: 0, unitCount: 0 },
+  };
+
   const materialsOut = sortedMaterials.map((material) => {
-    const units = material.units;
+    const units = material.units.map((u) => {
+      const lvl = VALID_LEVELS.includes(u.level) ? u.level : 'lower';
+      return {
+        ...u,
+        level: lvl,
+        levelLabel: LEVEL_CONFIG[lvl]?.label || 'القطع السفلية',
+      };
+    });
+
     const totalArea = units.reduce((sum, u) => sum + u.area, 0);
     const totalCost = totalArea * material.pricePerMeter;
+
+    units.forEach((u) => {
+      const lvl = u.level;
+      const unitCost = u.area * material.pricePerMeter;
+      levelsSummary[lvl].totalArea += u.area;
+      levelsSummary[lvl].totalCost += unitCost;
+      levelsSummary[lvl].unitCount += 1;
+    });
 
     return {
       id: material.id,
@@ -97,6 +127,11 @@ export async function buildState() {
     };
   });
 
+  Object.keys(levelsSummary).forEach((k) => {
+    levelsSummary[k].totalArea = round(levelsSummary[k].totalArea, 4);
+    levelsSummary[k].totalCost = round(levelsSummary[k].totalCost, 2);
+  });
+
   const materialsTotalArea = materialsOut.reduce((sum, m) => sum + m.totalArea, 0);
   const materialsTotalCost = materialsOut.reduce((sum, m) => sum + m.totalCost, 0);
   const accessoriesCost = accessories.reduce((sum, a) => sum + a.price, 0);
@@ -106,6 +141,7 @@ export async function buildState() {
     materials: materialsOut,
     accessories,
     unitTypes: Object.values(UNIT_TYPES),
+    levels: levelsSummary,
     totalMaterials: materialsOut.length,
     totalUnits: materialsOut.reduce((sum, m) => sum + m.unitsCount, 0),
     grandTotalArea: round(materialsTotalArea, 4),
@@ -209,7 +245,7 @@ export async function DELETE(req, { params }) {
 mkdir(path.join(API_DIR, 'materials/[materialId]/units'));
 write(path.join(API_DIR, 'materials/[materialId]/units', 'route.js'), `
 import { NextResponse } from 'next/server';
-import { loadData, saveData, buildState, cleanText, toNumber, isPositive, UNIT_TYPES, describeCalculation, round } from '@/lib/db';
+import { loadData, saveData, buildState, cleanText, toNumber, isPositive, UNIT_TYPES, describeCalculation, round, LEVEL_CONFIG, VALID_LEVELS } from '@/lib/db';
 import { randomUUID } from 'crypto';
 
 export async function POST(req, { params }) {
@@ -219,9 +255,11 @@ export async function POST(req, { params }) {
   if (!material) return NextResponse.json({ error: 'الخامة غير موجودة' }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
-  const { type, name, width, height, length, measurementUnit = 'cm' } = body;
+  const { type, name, width, height, length, measurementUnit = 'cm', level = 'lower' } = body;
   const typeDef = UNIT_TYPES[type];
   if (!typeDef) return NextResponse.json({ error: 'نوع الوحدة غير صالح' }, { status: 400 });
+
+  const validLevel = VALID_LEVELS.includes(level) ? level : 'lower';
 
   const rawW = toNumber(width);
   const rawH = toNumber(height);
@@ -242,6 +280,9 @@ export async function POST(req, { params }) {
   const unit = {
     id: randomUUID(),
     type,
+    typeLabel: typeDef.label,
+    level: validLevel,
+    levelLabel: LEVEL_CONFIG[validLevel]?.label || 'القطع السفلية',
     name: cleanText(name) || typeDef.label,
     width: rawW,
     height: rawH,
@@ -268,7 +309,7 @@ export async function POST(req, { params }) {
 mkdir(path.join(API_DIR, 'materials/[materialId]/units/[unitId]'));
 write(path.join(API_DIR, 'materials/[materialId]/units/[unitId]', 'route.js'), `
 import { NextResponse } from 'next/server';
-import { loadData, saveData, buildState, cleanText, toNumber, isPositive, UNIT_TYPES, describeCalculation, round } from '@/lib/db';
+import { loadData, saveData, buildState, cleanText, toNumber, isPositive, UNIT_TYPES, describeCalculation, round, LEVEL_CONFIG, VALID_LEVELS } from '@/lib/db';
 
 export async function PUT(req, { params }) {
   const { materialId, unitId } = params;
@@ -280,7 +321,7 @@ export async function PUT(req, { params }) {
   if (!unit) return NextResponse.json({ error: 'الوحدة غير موجودة' }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
-  const { name, width, height, length, measurementUnit = unit.measurementUnit } = body;
+  const { name, width, height, length, measurementUnit = unit.measurementUnit, level } = body;
   const typeDef = UNIT_TYPES[unit.type];
 
   const rawW = toNumber(width);
@@ -300,6 +341,10 @@ export async function PUT(req, { params }) {
   const unitStr = measurementUnit === 'cm' ? 'سم' : 'م';
 
   if (name !== undefined) unit.name = cleanText(name) || typeDef.label;
+  if (level !== undefined && VALID_LEVELS.includes(level)) {
+    unit.level = level;
+    unit.levelLabel = LEVEL_CONFIG[level]?.label || unit.levelLabel;
+  }
   unit.width = rawW;
   unit.height = rawH;
   unit.length = rawL;

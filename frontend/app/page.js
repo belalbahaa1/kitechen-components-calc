@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -12,6 +12,11 @@ const EMPTY_STATE = {
   materials: [],
   accessories: [],
   unitTypes: [],
+  levels: {
+    lower: { key: 'lower', label: 'القطع السفلية', totalArea: 0, totalCost: 0, unitCount: 0 },
+    upper: { key: 'upper', label: 'القطع العلوية', totalArea: 0, totalCost: 0, unitCount: 0 },
+    third: { key: 'third', label: 'المستوى الثالث', totalArea: 0, totalCost: 0, unitCount: 0 },
+  },
   totalMaterials: 0,
   totalUnits: 0,
   grandTotalArea: 0,
@@ -23,11 +28,29 @@ const INITIAL_MATERIAL_FORM = { name: '', pricePerMeter: '' };
 const INITIAL_UNIT_FORM = {
   materialId: '',
   measurementUnit: 'cm',
+  level: 'lower',
   type: 'standard',
   name: '',
   width: '',
-  height: '',
+  height: '90', // Default height for lower cabinets in cm (sticky)
   length: '',
+};
+
+// Default sensible heights per cabinet level
+const DEFAULT_HEIGHTS = {
+  lower: { cm: 90, m: 0.9 },
+  upper: { cm: 80, m: 0.8 },
+  third: { cm: 40, m: 0.4 },
+};
+
+// Standard height presets for quick selection chips
+const STANDARD_HEIGHT_PRESETS = {
+  cm: [90, 85, 80, 70, 60, 40],
+  m: [0.9, 0.85, 0.8, 0.7, 0.6, 0.4],
+};
+
+const getDefaultHeight = (level = 'lower', unit = 'cm') => {
+  return DEFAULT_HEIGHTS[level]?.[unit] ?? (unit === 'cm' ? 90 : 0.9);
 };
 
 // Badge colors per unit type (UI only – the math lives on the server)
@@ -38,6 +61,49 @@ const TYPE_STYLES = {
   tall: 'border-violet-400/25 bg-violet-950/50 text-violet-200',
   lshape: 'border-emerald-400/25 bg-emerald-950/50 text-emerald-200',
   side: 'border-rose-400/25 bg-rose-950/50 text-rose-200',
+};
+
+// Configuration and styling for vertical levels
+const LEVEL_CONFIG = {
+  lower: {
+    key: 'lower',
+    label: 'القطع السفلية',
+    shortLabel: 'سفلية',
+    subtitle: 'Base Cabinets',
+    badge: 'border-sky-400/30 bg-sky-950/60 text-sky-200',
+    dot: 'bg-sky-400',
+    bar: 'bg-sky-500',
+    accentText: 'text-sky-300',
+    cardBorder: 'border-sky-500/20 hover:border-sky-400/40',
+    cardGlow: 'from-sky-950/50 via-wood-950/40 to-black/40',
+    iconBg: 'from-sky-700/60 to-blue-900/60',
+  },
+  upper: {
+    key: 'upper',
+    label: 'القطع العلوية',
+    shortLabel: 'علوية',
+    subtitle: 'Wall Cabinets',
+    badge: 'border-amber-400/30 bg-amber-950/60 text-amber-200',
+    dot: 'bg-amber-400',
+    bar: 'bg-amber-500',
+    accentText: 'text-amber-300',
+    cardBorder: 'border-amber-500/20 hover:border-amber-400/40',
+    cardGlow: 'from-amber-950/50 via-wood-950/40 to-black/40',
+    iconBg: 'from-amber-700/60 to-wood-900/60',
+  },
+  third: {
+    key: 'third',
+    label: 'المستوى الثالث',
+    shortLabel: 'مستوى ثالث',
+    subtitle: 'Loft Cabinets',
+    badge: 'border-purple-400/30 bg-purple-950/60 text-purple-200',
+    dot: 'bg-purple-400',
+    bar: 'bg-purple-500',
+    accentText: 'text-purple-300',
+    cardBorder: 'border-purple-500/20 hover:border-purple-400/40',
+    cardGlow: 'from-purple-950/50 via-indigo-950/40 to-black/40',
+    iconBg: 'from-purple-700/60 to-indigo-900/60',
+  },
 };
 
 // Accent palette used to visually distinguish each material section
@@ -180,14 +246,14 @@ function CardHeader({ icon, title, subtitle, step, accent = 'from-wood-800/60 to
   );
 }
 
-function Field({ id, label, suffix, hint, ...props }) {
+const Field = forwardRef(function Field({ id, label, suffix, hint, ...props }, ref) {
   return (
     <div>
       <label htmlFor={id} className="mb-1.5 block text-sm font-semibold text-cream-50">
         {label}
       </label>
       <div className="relative">
-        <input id={id} className={`${INPUT_BASE} ${suffix ? 'pl-16' : ''}`} {...props} />
+        <input ref={ref} id={id} className={`${INPUT_BASE} ${suffix ? 'pl-16' : ''}`} {...props} />
         {suffix && (
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs font-semibold text-cream-50/60">
             {suffix}
@@ -197,7 +263,7 @@ function Field({ id, label, suffix, hint, ...props }) {
       {hint && <p className="mt-1.5 text-xs text-cream-50/60">{hint}</p>}
     </div>
   );
-}
+});
 
 function SelectField({ id, label, children, ...props }) {
   return (
@@ -263,6 +329,49 @@ function TypeBadge({ type, label }) {
       }`}
     >
       {label}
+    </span>
+  );
+}
+
+function LevelIcon({ level, className = 'h-5 w-5' }) {
+  if (level === 'lower') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+        <rect x="3" y="3" width="18" height="4.5" rx="1.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.35" />
+        <rect x="3" y="9.75" width="18" height="4.5" rx="1.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.35" />
+        <rect x="3" y="16.5" width="18" height="4.5" rx="1.2" fill="currentColor" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="12" cy="18.75" r="0.75" fill="#1b120b" />
+      </svg>
+    );
+  }
+  if (level === 'upper') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+        <rect x="3" y="3" width="18" height="4.5" rx="1.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.35" />
+        <rect x="3" y="9.75" width="18" height="4.5" rx="1.2" fill="currentColor" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="12" cy="12" r="0.75" fill="#1b120b" />
+        <rect x="3" y="16.5" width="18" height="4.5" rx="1.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.35" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <rect x="3" y="3" width="18" height="4.5" rx="1.2" fill="currentColor" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="12" cy="5.25" r="0.75" fill="#1b120b" />
+      <rect x="3" y="9.75" width="18" height="4.5" rx="1.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.35" />
+      <rect x="3" y="16.5" width="18" height="4.5" rx="1.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.35" />
+    </svg>
+  );
+}
+
+function LevelBadge({ level, compact = false }) {
+  const config = LEVEL_CONFIG[level] || LEVEL_CONFIG.lower;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-2 py-0.5 text-xs font-bold ${config.badge}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
+      <span>{compact ? config.shortLabel : config.label}</span>
     </span>
   );
 }
@@ -371,12 +480,13 @@ function EditButton({ loading, label, compact = false, ...props }) {
 }
 
 function EditUnitModal({ unit, isOpen, onClose, onSave, loading }) {
-  const [form, setForm] = useState({ name: '', width: '', height: '', length: '', measurementUnit: 'cm' });
+  const [form, setForm] = useState({ name: '', level: 'lower', width: '', height: '90', length: '', measurementUnit: 'cm' });
 
   useEffect(() => {
     if (unit) {
       setForm({
         name: unit.name || '',
+        level: unit.level || 'lower',
         width: unit.width || '',
         height: unit.height || '',
         length: unit.length || '',
@@ -395,6 +505,34 @@ function EditUnitModal({ unit, isOpen, onClose, onSave, loading }) {
   const update = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
   const needsLength = unit.type === 'lshape';
   const unitLabel = form.measurementUnit === 'cm' ? 'سم' : 'م';
+  const editDefaultH = getDefaultHeight(form.level, form.measurementUnit);
+  const editPresets = STANDARD_HEIGHT_PRESETS[form.measurementUnit] || STANDARD_HEIGHT_PRESETS.cm;
+
+  const handleEditUnitMeasurementChange = (newUnit) => {
+    setForm((prev) => {
+      if (prev.measurementUnit === newUnit) return prev;
+      let newHeight = prev.height;
+      if (prev.height && !isNaN(Number(prev.height))) {
+        const num = Number(prev.height);
+        if (newUnit === 'm' && prev.measurementUnit === 'cm') {
+          newHeight = String(Math.round((num / 100) * 1000) / 1000);
+        } else if (newUnit === 'cm' && prev.measurementUnit === 'm') {
+          newHeight = String(Math.round(num * 100));
+        }
+      } else {
+        newHeight = String(getDefaultHeight(prev.level, newUnit));
+      }
+      return { ...prev, measurementUnit: newUnit, height: newHeight };
+    });
+  };
+
+  const handleEditLevelChange = (newLevel) => {
+    setForm((prev) => ({
+      ...prev,
+      level: newLevel,
+      height: String(getDefaultHeight(newLevel, prev.measurementUnit)),
+    }));
+  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -413,15 +551,43 @@ function EditUnitModal({ unit, isOpen, onClose, onSave, loading }) {
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-4 text-right">
+          {/* Level Selector */}
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-cream-50">مستوى الوحدة</label>
+            <div className="grid grid-cols-3 gap-2 p-1.5 rounded-xl bg-black/20 border border-cream-100/5">
+              {Object.values(LEVEL_CONFIG).map((lvl) => {
+                const isSelected = form.level === lvl.key;
+                return (
+                  <button
+                    key={lvl.key}
+                    type="button"
+                    onClick={() => handleEditLevelChange(lvl.key)}
+                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg text-xs font-bold transition ${
+                      isSelected
+                        ? `${lvl.badge} shadow ring-1 ring-cream-50/20`
+                        : 'text-cream-50/60 hover:text-cream-50 hover:bg-cream-50/5'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <span className={`h-1.5 w-1.5 rounded-full ${isSelected ? lvl.dot : 'bg-cream-50/30'}`} />
+                      <span>{lvl.label}</span>
+                    </div>
+                    <span className="text-[9px] opacity-70 font-normal">{lvl.subtitle}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div>
             <label className="mb-2 block text-sm font-semibold text-cream-50">وحدة القياس</label>
             <div className="flex gap-4 p-1 rounded-xl bg-black/20 border border-cream-100/5">
               <label className={`flex-1 flex justify-center items-center gap-2 py-2 text-sm font-bold cursor-pointer rounded-lg transition ${form.measurementUnit === 'cm' ? 'bg-cream-50/10 text-cream-50 shadow' : 'text-cream-50/50 hover:text-cream-50/80'}`}>
-                <input type="radio" name="edit_measurementUnit" value="cm" checked={form.measurementUnit === 'cm'} onChange={update('measurementUnit')} className="hidden" />
+                <input type="radio" name="edit_measurementUnit" value="cm" checked={form.measurementUnit === 'cm'} onChange={() => handleEditUnitMeasurementChange('cm')} className="hidden" />
                 سنتيمتر (cm)
               </label>
               <label className={`flex-1 flex justify-center items-center gap-2 py-2 text-sm font-bold cursor-pointer rounded-lg transition ${form.measurementUnit === 'm' ? 'bg-cream-50/10 text-cream-50 shadow' : 'text-cream-50/50 hover:text-cream-50/80'}`}>
-                <input type="radio" name="edit_measurementUnit" value="m" checked={form.measurementUnit === 'm'} onChange={update('measurementUnit')} className="hidden" />
+                <input type="radio" name="edit_measurementUnit" value="m" checked={form.measurementUnit === 'm'} onChange={() => handleEditUnitMeasurementChange('m')} className="hidden" />
                 متر (m)
               </label>
             </div>
@@ -429,9 +595,43 @@ function EditUnitModal({ unit, isOpen, onClose, onSave, loading }) {
           
           <Field id="edit-unit-name" label="اسم الوحدة" type="text" value={form.name} onChange={update('name')} maxLength={60} />
           
-          <div className="grid grid-cols-2 gap-3">
-            <Field id="edit-unit-width" label="العرض" type="number" inputMode="decimal" min="0" step="any" suffix={unitLabel} value={form.width} onChange={update('width')} required />
-            <Field id="edit-unit-height" label="الارتفاع" type="number" inputMode="decimal" min="0" step="any" suffix={unitLabel} value={form.height} onChange={update('height')} required />
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-3">
+              <Field id="edit-unit-width" label="العرض" type="number" inputMode="decimal" min="0" step="any" suffix={unitLabel} value={form.width} onChange={update('width')} required />
+              <Field id="edit-unit-height" label="الارتفاع" type="number" inputMode="decimal" min="0" step="any" suffix={unitLabel} value={form.height} onChange={update('height')} required />
+            </div>
+
+            {/* Quick Height Chips & Default Indicator */}
+            <div className="rounded-xl border border-cream-100/10 bg-black/25 p-2.5 text-xs">
+              <div className="flex items-center justify-between text-[11px] mb-2">
+                <span className="text-cream-50/75">الارتفاع الافتراضي لهذا المستوى:</span>
+                <button
+                  type="button"
+                  onClick={() => setForm((p) => ({ ...p, height: String(editDefaultH) }))}
+                  className="font-bold text-amber-200 hover:text-amber-100 underline decoration-dotted"
+                  title="انقر لتطبيق الارتفاع الافتراضي"
+                >
+                  {editDefaultH} {unitLabel}
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-cream-100/5">
+                <span className="text-[10px] text-cream-50/50 font-medium">خيارات سريعة:</span>
+                {editPresets.map((hVal) => (
+                  <button
+                    key={hVal}
+                    type="button"
+                    onClick={() => setForm((p) => ({ ...p, height: String(hVal) }))}
+                    className={`rounded-md px-2 py-0.5 text-xs font-bold tabular-nums transition ${
+                      String(form.height) === String(hVal)
+                        ? 'bg-amber-400 text-wood-950 shadow ring-1 ring-amber-300'
+                        : 'bg-black/30 border border-cream-100/10 text-cream-50/70 hover:text-cream-50 hover:bg-cream-50/10'
+                    }`}
+                  >
+                    {hVal} {unitLabel}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           
           {needsLength && (
@@ -635,9 +835,165 @@ function GrandTotalCard({ state, loading }) {
 // ---------------------------------------------------------------------------
 // Results: One material section
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Results: Levels breakdown (3-column stats grid)
+// ---------------------------------------------------------------------------
+function LevelCard({ levelKey, levelData, grandTotalCost, grandTotalArea, loading }) {
+  const config = LEVEL_CONFIG[levelKey] || LEVEL_CONFIG.lower;
+  const area = levelData?.totalArea || 0;
+  const cost = levelData?.totalCost || 0;
+  const count = levelData?.unitCount || 0;
+  const costShare = grandTotalCost > 0 ? (cost / grandTotalCost) * 100 : 0;
+
+  return (
+    <div
+      className={`relative overflow-hidden rounded-3xl border ${config.cardBorder} bg-gradient-to-br ${config.cardGlow} p-5 text-cream-50 shadow-xl shadow-black/30 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-black/50`}
+    >
+      {/* Top accent line */}
+      <div className={`absolute inset-x-0 top-0 h-1.5 ${config.bar}`} />
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-cream-100/10 bg-gradient-to-br ${config.iconBg} text-cream-50 shadow-md`}
+          >
+            <LevelIcon level={levelKey} className="h-5 w-5" />
+          </span>
+          <div>
+            <h3 className="font-extrabold text-base text-cream-50 leading-tight">
+              {config.label}
+            </h3>
+            <p className="text-[11px] text-cream-50/60 font-medium">{config.subtitle}</p>
+          </div>
+        </div>
+
+        <span
+          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-bold tabular-nums ${config.badge}`}
+        >
+          {loading ? '…' : `${count} قطعة`}
+        </span>
+      </div>
+
+      {/* Main Stat: Cost */}
+      <div className="rounded-2xl border border-cream-100/10 bg-black/30 p-3.5 mb-3.5 backdrop-blur-md">
+        <span className="text-[11px] font-semibold text-cream-50/70 block">
+          التكلفة الإجمالية
+        </span>
+        <div className="mt-1 flex items-baseline gap-1.5">
+          {loading ? (
+            <span className="h-8 w-28 animate-pulse rounded-lg bg-cream-50/20" />
+          ) : (
+            <>
+              <span className={`text-2xl sm:text-3xl font-black tabular-nums tracking-tight ${config.accentText}`}>
+                {fmt(cost)}
+              </span>
+              <span className="text-xs font-bold text-cream-50/70">{CURRENCY}</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Sub Stats: Area & Cost Share */}
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-xl border border-cream-100/5 bg-black/25 p-2.5">
+          <span className="text-cream-50/60 block text-[11px]">المساحة الإجمالية</span>
+          <span className="font-bold text-cream-50 tabular-nums text-sm mt-0.5 block">
+            {loading ? '…' : `${fmt(area, 3)} م²`}
+          </span>
+        </div>
+        <div className="rounded-xl border border-cream-100/5 bg-black/25 p-2.5">
+          <span className="text-cream-50/60 block text-[11px]">نسبة التكلفة</span>
+          <span className="font-bold text-cream-50 tabular-nums text-sm mt-0.5 block">
+            {loading ? '…' : `${fmt(costShare, 1)}%`}
+          </span>
+        </div>
+      </div>
+
+      {/* Visual mini progress bar for cost share */}
+      <div className="mt-3.5">
+        <div className="flex justify-between items-center text-[10px] text-cream-50/50 mb-1">
+          <span>الحصة من إجمالي تكلفة المطبخ</span>
+          <span className="tabular-nums font-semibold">{loading ? '…' : `${fmt(costShare, 1)}%`}</span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/40 border border-cream-100/5">
+          <div
+            className={`h-full transition-all duration-500 rounded-full ${config.bar}`}
+            style={{ width: `${Math.min(costShare, 100)}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LevelsSummarySection({ levels, grandTotalCost, grandTotalArea, loading }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="flex items-center gap-2 text-base sm:text-lg font-bold text-cream-50">
+          <Icon name="layers" className="h-5 w-5 text-amber-200/90" />
+          <span>ملخص المستويات الرأسية للمطبخ</span>
+        </h2>
+        <span className="text-xs text-cream-50/60 hidden sm:inline">
+          سفلي · علوي · مستوى ثالث
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <LevelCard
+          levelKey="lower"
+          levelData={levels?.lower}
+          grandTotalCost={grandTotalCost}
+          grandTotalArea={grandTotalArea}
+          loading={loading}
+        />
+        <LevelCard
+          levelKey="upper"
+          levelData={levels?.upper}
+          grandTotalCost={grandTotalCost}
+          grandTotalArea={grandTotalArea}
+          loading={loading}
+        />
+        <LevelCard
+          levelKey="third"
+          levelData={levels?.third}
+          grandTotalCost={grandTotalCost}
+          grandTotalArea={grandTotalArea}
+          loading={loading}
+        />
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Results: One material section
+// ---------------------------------------------------------------------------
 function MaterialSection({ material, index, deletingKey, onDeleteMaterial, onDeleteUnit, onEditUnit }) {
   const accent = accentFor(index);
   const deletingMaterial = deletingKey === `material-${material.id}`;
+  const [levelFilter, setLevelFilter] = useState('all');
+
+  const counts = {
+    all: material.units.length,
+    lower: material.units.filter((u) => (u.level || 'lower') === 'lower').length,
+    upper: material.units.filter((u) => u.level === 'upper').length,
+    third: material.units.filter((u) => u.level === 'third').length,
+  };
+
+  const displayedUnits = useMemo(() => {
+    if (levelFilter === 'all') return material.units;
+    return material.units.filter((u) => (u.level || 'lower') === levelFilter);
+  }, [material.units, levelFilter]);
+
+  const displayedArea = useMemo(() => {
+    return displayedUnits.reduce((sum, u) => sum + u.area, 0);
+  }, [displayedUnits]);
+
+  const displayedCost = useMemo(() => {
+    return displayedArea * material.pricePerMeter;
+  }, [displayedArea, material.pricePerMeter]);
 
   return (
     <section
@@ -694,103 +1050,197 @@ function MaterialSection({ material, index, deletingKey, onDeleteMaterial, onDel
             subtitle="اختر هذه الخامة من نموذج «إضافة وحدة جديدة»"
           />
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-cream-100/10 bg-black/15">
-            <table className="w-full min-w-[680px] text-sm">
-              <thead>
-                <tr className="border-b border-cream-100/10 bg-black/20 text-xs text-cream-50/70">
-                  <th className="px-3 py-3 text-right font-semibold">#</th>
-                  <th className="px-3 py-3 text-right font-semibold">الوحدة</th>
-                  <th className="px-3 py-3 text-right font-semibold">الأبعاد</th>
-                  <th className="px-3 py-3 text-right font-semibold">القاعدة المطبقة</th>
-                  <th className="px-3 py-3 text-right font-semibold">المساحة</th>
-                  <th className="px-3 py-3" aria-label="إجراءات" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-cream-100/[0.06]">
-                {material.units.map((unit, i) => {
-                  const deletingUnit = deletingKey === `unit-${unit.id}`;
-                  return (
-                    <tr
-                      key={unit.id}
-                      className={`animate-fade-in-up transition-colors hover:bg-cream-50/[0.04] ${
-                        deletingUnit ? 'pointer-events-none opacity-50' : ''
-                      }`}
-                    >
-                      <td className="px-3 py-3 font-bold text-cream-50/50 tabular-nums">{i + 1}</td>
-                      <td className="px-3 py-3">
-                        <p className="max-w-[11rem] truncate font-bold text-cream-50">{unit.name}</p>
-                        <div className="mt-1">
-                          <TypeBadge type={unit.type} label={unit.typeLabel} />
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-cream-50/80">
-                        <div className="space-y-0.5 text-xs tabular-nums">
-                          <p>
-                            العرض: <span className="font-semibold text-cream-50">{fmt(unit.width)} {unit.measurementUnit === 'cm' ? 'سم' : 'م'}</span>
-                          </p>
-                          <p>
-                            الارتفاع: <span className="font-semibold text-cream-50">{fmt(unit.height)} {unit.measurementUnit === 'cm' ? 'سم' : 'م'}</span>
-                          </p>
-                          {unit.length != null && (
-                            <p>
-                              الطول: <span className="font-semibold text-emerald-200">{fmt(unit.length)} {unit.measurementUnit === 'cm' ? 'سم' : 'م'}</span>
-                            </p>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <p className="text-xs font-semibold text-cream-50/80">{unit.rule}</p>
-                        <p
-                          dir="ltr"
-                          className="mt-1 text-right font-mono text-[11px] text-cream-50/50"
-                        >
-                          {unit.calculation}
-                        </p>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-3">
-                        <span className="rounded-lg border border-sky-400/15 bg-sky-950/40 px-2 py-1 text-xs font-bold text-sky-200/90 tabular-nums">
-                          {fmt(unit.area, 4)} م²
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-left">
-                        <div className="flex items-center gap-2 justify-end">
-                          <EditButton
-                            compact
-                            id={`edit-unit-${unit.id}`}
-                            loading={deletingKey === `edit-unit-${unit.id}`}
-                            label={`تعديل ${unit.name}`}
-                            onClick={() => onEditUnit(material.id, unit)}
-                          />
-                          <DeleteButton
-                            compact
-                            id={`delete-unit-${unit.id}`}
-                            loading={deletingUnit}
-                            label={`حذف ${unit.name}`}
-                            onClick={() => onDeleteUnit(material.id, unit)}
-                          />
-                        </div>
-                      </td>
+          <div className="space-y-3">
+            {/* Filter buttons bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cream-100/10 bg-black/20 p-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-cream-50/70">تصفية حسب المستوى:</span>
+                <div className="inline-flex rounded-xl bg-black/30 p-1 border border-cream-100/10 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setLevelFilter('all')}
+                    className={`rounded-lg px-2.5 py-1 transition ${
+                      levelFilter === 'all'
+                        ? 'bg-cream-50/15 text-cream-50 shadow'
+                        : 'text-cream-50/60 hover:text-cream-50'
+                    }`}
+                  >
+                    الكل ({counts.all})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLevelFilter('lower')}
+                    className={`rounded-lg px-2.5 py-1 transition flex items-center gap-1.5 ${
+                      levelFilter === 'lower'
+                        ? 'bg-sky-950/80 text-sky-200 border border-sky-400/30 shadow'
+                        : 'text-cream-50/60 hover:text-sky-200'
+                    }`}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
+                    سفلية ({counts.lower})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLevelFilter('upper')}
+                    className={`rounded-lg px-2.5 py-1 transition flex items-center gap-1.5 ${
+                      levelFilter === 'upper'
+                        ? 'bg-amber-950/80 text-amber-200 border border-amber-400/30 shadow'
+                        : 'text-cream-50/60 hover:text-amber-200'
+                    }`}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    علوية ({counts.upper})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLevelFilter('third')}
+                    className={`rounded-lg px-2.5 py-1 transition flex items-center gap-1.5 ${
+                      levelFilter === 'third'
+                        ? 'bg-purple-950/80 text-purple-200 border border-purple-400/30 shadow'
+                        : 'text-cream-50/60 hover:text-purple-200'
+                    }`}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-purple-400" />
+                    مستوى ثالث ({counts.third})
+                  </button>
+                </div>
+              </div>
+
+              {levelFilter !== 'all' && (
+                <span className="text-xs text-cream-50/70 font-medium">
+                  عرض {displayedUnits.length} من {material.units.length} وحدة
+                </span>
+              )}
+            </div>
+
+            {/* Table or Empty filter message */}
+            {displayedUnits.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-cream-100/10 bg-black/15 py-8 text-center">
+                <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-cream-50/5 text-cream-50/60">
+                  <Icon name="info" className="h-5 w-5" />
+                </span>
+                <p className="text-sm font-bold text-cream-50">
+                  لا توجد قطع «{LEVEL_CONFIG[levelFilter]?.label || levelFilter}» في هذه الخامة
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setLevelFilter('all')}
+                  className="mt-2 text-xs font-semibold text-amber-300 hover:underline"
+                >
+                  عرض جميع الوحدات ({material.units.length})
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-cream-100/10 bg-black/15">
+                <table className="w-full min-w-[680px] text-sm">
+                  <thead>
+                    <tr className="border-b border-cream-100/10 bg-black/20 text-xs text-cream-50/70">
+                      <th className="px-3 py-3 text-right font-semibold">#</th>
+                      <th className="px-3 py-3 text-right font-semibold">الوحدة والمستوى</th>
+                      <th className="px-3 py-3 text-right font-semibold">الأبعاد</th>
+                      <th className="px-3 py-3 text-right font-semibold">القاعدة المطبقة</th>
+                      <th className="px-3 py-3 text-right font-semibold">المساحة</th>
+                      <th className="px-3 py-3" aria-label="إجراءات" />
                     </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-cream-100/10 bg-black/25 font-bold">
-                  <td colSpan={4} className="px-3 py-3 text-cream-50/80">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span>إجمالي {material.name}</span>
-                      <span className="font-normal text-xs text-cream-50/50 bg-black/20 px-2 py-0.5 rounded-full border border-cream-100/5">
-                        التكلفة = {fmt(material.totalArea, 4)} م² × {fmt(material.pricePerMeter)} = <span className={accent.text}>{fmt(material.totalCost)} {CURRENCY}</span>
-                      </span>
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-3 text-sky-200/90 tabular-nums">
-                    {fmt(material.totalArea, 4)} م²
-                  </td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
+                  </thead>
+                  <tbody className="divide-y divide-cream-100/[0.06]">
+                    {displayedUnits.map((unit, i) => {
+                      const deletingUnit = deletingKey === `unit-${unit.id}`;
+                      return (
+                        <tr
+                          key={unit.id}
+                          className={`animate-fade-in-up transition-colors hover:bg-cream-50/[0.04] ${
+                            deletingUnit ? 'pointer-events-none opacity-50' : ''
+                          }`}
+                        >
+                          <td className="px-3 py-3 font-bold text-cream-50/50 tabular-nums">{i + 1}</td>
+                          <td className="px-3 py-3">
+                            <p className="max-w-[11rem] truncate font-bold text-cream-50">{unit.name}</p>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <LevelBadge level={unit.level || 'lower'} />
+                              <TypeBadge type={unit.type} label={unit.typeLabel} />
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-cream-50/80">
+                            <div className="space-y-0.5 text-xs tabular-nums">
+                              <p>
+                                العرض: <span className="font-semibold text-cream-50">{fmt(unit.width)} {unit.measurementUnit === 'cm' ? 'سم' : 'م'}</span>
+                              </p>
+                              <p>
+                                الارتفاع: <span className="font-semibold text-cream-50">{fmt(unit.height)} {unit.measurementUnit === 'cm' ? 'سم' : 'م'}</span>
+                              </p>
+                              {unit.length != null && (
+                                <p>
+                                  الطول: <span className="font-semibold text-emerald-200">{fmt(unit.length)} {unit.measurementUnit === 'cm' ? 'سم' : 'م'}</span>
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-3">
+                            <p className="text-xs font-semibold text-cream-50/80">{unit.rule}</p>
+                            <p
+                              dir="ltr"
+                              className="mt-1 text-right font-mono text-[11px] text-cream-50/50"
+                            >
+                              {unit.calculation}
+                            </p>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3">
+                            <span className="rounded-lg border border-sky-400/15 bg-sky-950/40 px-2 py-1 text-xs font-bold text-sky-200/90 tabular-nums">
+                              {fmt(unit.area, 4)} م²
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-left">
+                            <div className="flex items-center gap-2 justify-end">
+                              <EditButton
+                                compact
+                                id={`edit-unit-${unit.id}`}
+                                loading={deletingKey === `edit-unit-${unit.id}`}
+                                label={`تعديل ${unit.name}`}
+                                onClick={() => onEditUnit(material.id, unit)}
+                              />
+                              <DeleteButton
+                                compact
+                                id={`delete-unit-${unit.id}`}
+                                loading={deletingUnit}
+                                label={`حذف ${unit.name}`}
+                                onClick={() => onDeleteUnit(material.id, unit)}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-cream-100/10 bg-black/25 font-bold">
+                      <td colSpan={4} className="px-3 py-3 text-cream-50/80">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span>
+                            {levelFilter === 'all'
+                              ? `إجمالي ${material.name}`
+                              : `إجمالي ${LEVEL_CONFIG[levelFilter]?.label || ''} في ${material.name}`}
+                          </span>
+                          <span className="font-normal text-xs text-cream-50/50 bg-black/20 px-2 py-0.5 rounded-full border border-cream-100/5">
+                            التكلفة = {fmt(displayedArea, 4)} م² × {fmt(material.pricePerMeter)} ={' '}
+                            <span className={accent.text}>{fmt(displayedCost)} {CURRENCY}</span>
+                            {levelFilter !== 'all' && (
+                              <span className="text-cream-50/50 mr-1.5">
+                                (من أصل إجمالي الخامة: {fmt(material.totalCost)} {CURRENCY})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-sky-200/90 tabular-nums">
+                        {fmt(displayedArea, 4)} م²
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -805,6 +1255,8 @@ export default function Home() {
   const [state, setState] = useState(EMPTY_STATE);
   const [materialForm, setMaterialForm] = useState(INITIAL_MATERIAL_FORM);
   const [unitForm, setUnitForm] = useState(INITIAL_UNIT_FORM);
+
+  const widthInputRef = useRef(null);
 
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -846,6 +1298,26 @@ export default function Home() {
     const t = setTimeout(() => setSuccess(''), 2500);
     return () => clearTimeout(t);
   }, [success]);
+
+  // Auto-focus Width input on initial load or once materials are available
+  useEffect(() => {
+    if (!loading && hasMaterials) {
+      widthInputRef.current?.focus();
+    }
+  }, [loading, hasMaterials]);
+
+  // Keep focus on Width input when an addition completes
+  const prevAddingUnit = useRef(addingUnit);
+  useEffect(() => {
+    if (prevAddingUnit.current && !addingUnit) {
+      widthInputRef.current?.focus();
+      const t = setTimeout(() => {
+        widthInputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(t);
+    }
+    prevAddingUnit.current = addingUnit;
+  }, [addingUnit]);
 
   // Keep the selected material valid (e.g. after it gets deleted)
   useEffect(() => {
@@ -936,7 +1408,8 @@ export default function Home() {
   };
 
   const handleAddUnit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
+    if (addingUnit) return;
     const width = parseFloat(unitForm.width);
     const height = parseFloat(unitForm.height);
     const length = parseFloat(unitForm.length);
@@ -953,6 +1426,7 @@ export default function Home() {
         method: 'POST',
         body: JSON.stringify({
           type: selectedType.key,
+          level: unitForm.level || 'lower',
           name: unitForm.name.trim(),
           width,
           height,
@@ -961,18 +1435,25 @@ export default function Home() {
         }),
       });
       setState(data.state);
-      // Keep material, type, and measurementUnit selected for fast consecutive entries
+      // Keep material, level, type, measurementUnit, AND sticky height for fast consecutive entries
       setUnitForm((prev) => ({
         ...INITIAL_UNIT_FORM,
         materialId: prev.materialId,
+        level: prev.level,
         type: prev.type,
         measurementUnit: prev.measurementUnit,
+        height: prev.height, // Sticky height: retained for consecutive additions
       }));
       setSuccess(data.message);
     } catch (err) {
       setError(err.message);
     } finally {
       setAddingUnit(false);
+      // Auto-focus back to width input immediately for seamless rapid entry
+      widthInputRef.current?.focus();
+      setTimeout(() => {
+        widthInputRef.current?.focus();
+      }, 50);
     }
   };
 
@@ -1007,6 +1488,7 @@ export default function Home() {
         method: 'PUT',
         body: JSON.stringify({
           name: form.name.trim(),
+          level: form.level || unit.level || 'lower',
           width: parseFloat(form.width),
           height: parseFloat(form.height),
           ...(unit.type === 'lshape' && { length: parseFloat(form.length) }),
@@ -1058,6 +1540,41 @@ export default function Home() {
     setUnitForm((prev) => ({ ...prev, type, length: requiresLength ? prev.length : '' }));
   };
 
+  const handleLevelChange = (newLevel) => {
+    setUnitForm((prev) => ({
+      ...prev,
+      level: newLevel,
+      height: String(getDefaultHeight(newLevel, prev.measurementUnit)),
+    }));
+  };
+
+  const handleMeasurementUnitChange = (newUnit) => {
+    setUnitForm((prev) => {
+      if (prev.measurementUnit === newUnit) return prev;
+      let newHeight = prev.height;
+      if (prev.height && !isNaN(Number(prev.height))) {
+        const num = Number(prev.height);
+        if (newUnit === 'm' && prev.measurementUnit === 'cm') {
+          newHeight = String(Math.round((num / 100) * 1000) / 1000);
+        } else if (newUnit === 'cm' && prev.measurementUnit === 'm') {
+          newHeight = String(Math.round(num * 100));
+        }
+      } else {
+        newHeight = String(getDefaultHeight(prev.level, newUnit));
+      }
+      return { ...prev, measurementUnit: newUnit, height: newHeight };
+    });
+  };
+
+  const handleInputKeyDown = (e) => {
+    if (e.key === 'Enter' && !addingUnit) {
+      e.preventDefault();
+      e.currentTarget.form?.requestSubmit();
+    }
+  };
+
+  const defaultHeightForCurrentLevel = getDefaultHeight(unitForm.level, unitForm.measurementUnit);
+  const heightPresets = STANDARD_HEIGHT_PRESETS[unitForm.measurementUnit] || STANDARD_HEIGHT_PRESETS.cm;
   const unitLabel = unitForm.measurementUnit === 'cm' ? 'سم' : 'م';
 
   // ---- Render --------------------------------------------------------------
@@ -1244,7 +1761,7 @@ export default function Home() {
               )}
 
               <form onSubmit={handleAddUnit}>
-                <fieldset disabled={loading || !hasMaterials || addingUnit} className="space-y-4">
+                <fieldset disabled={loading || !hasMaterials} className="space-y-4">
                   <SelectField
                     id="unit-material"
                     label="الخامة"
@@ -1273,7 +1790,7 @@ export default function Home() {
                           name="measurementUnit"
                           value="cm"
                           checked={unitForm.measurementUnit === 'cm'}
-                          onChange={updateUnitForm('measurementUnit')}
+                          onChange={() => handleMeasurementUnitChange('cm')}
                           className="hidden"
                         />
                         سنتيمتر (cm)
@@ -1284,11 +1801,44 @@ export default function Home() {
                           name="measurementUnit"
                           value="m"
                           checked={unitForm.measurementUnit === 'm'}
-                          onChange={updateUnitForm('measurementUnit')}
+                          onChange={() => handleMeasurementUnitChange('m')}
                           className="hidden"
                         />
                         متر (m)
                       </label>
+                    </div>
+                  </div>
+
+                  {/* Vertical Level Selector */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <label className="text-sm font-semibold text-cream-50">
+                        مستوى الوحدة (المستوى الرأسي)
+                      </label>
+                      <span className="text-[11px] text-cream-50/60 font-medium">سفلي · علوي · ثالث</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 p-1.5 rounded-2xl bg-black/25 border border-cream-100/10 backdrop-blur-md">
+                      {Object.values(LEVEL_CONFIG).map((lvl) => {
+                        const isSelected = unitForm.level === lvl.key;
+                        return (
+                          <button
+                            key={lvl.key}
+                            type="button"
+                            onClick={() => handleLevelChange(lvl.key)}
+                            className={`flex flex-col items-center justify-center py-2.5 px-2 rounded-xl text-xs font-bold transition-all duration-200 ${
+                              isSelected
+                                ? `${lvl.badge} shadow-lg ring-1 ring-cream-50/20 scale-[1.02]`
+                                : 'text-cream-50/60 hover:text-cream-50 hover:bg-cream-50/5'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className={`h-2 w-2 rounded-full ${isSelected ? lvl.dot : 'bg-cream-50/30'}`} />
+                              <span>{lvl.label}</span>
+                            </div>
+                            <span className="text-[10px] opacity-70 mt-0.5 font-normal">{lvl.subtitle}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1322,36 +1872,77 @@ export default function Home() {
                     placeholder={selectedType ? `مثال: ${selectedType.label} فوق الحوض` : 'وصف الوحدة'}
                     value={unitForm.name}
                     onChange={updateUnitForm('name')}
+                    onKeyDown={handleInputKeyDown}
                     maxLength={60}
                   />
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field
-                      id="unit-width"
-                      label="العرض"
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="any"
-                      placeholder="60"
-                      suffix={unitLabel}
-                      value={unitForm.width}
-                      onChange={updateUnitForm('width')}
-                      required
-                    />
-                    <Field
-                      id="unit-height"
-                      label="الارتفاع"
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="any"
-                      placeholder="80"
-                      suffix={unitLabel}
-                      value={unitForm.height}
-                      onChange={updateUnitForm('height')}
-                      required
-                    />
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field
+                        ref={widthInputRef}
+                        id="unit-width"
+                        label="العرض"
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="any"
+                        placeholder="60"
+                        suffix={unitLabel}
+                        value={unitForm.width}
+                        onChange={updateUnitForm('width')}
+                        onKeyDown={handleInputKeyDown}
+                        autoFocus
+                        required
+                      />
+                      <Field
+                        id="unit-height"
+                        label="الارتفاع"
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="any"
+                        placeholder={String(defaultHeightForCurrentLevel)}
+                        suffix={unitLabel}
+                        value={unitForm.height}
+                        onChange={updateUnitForm('height')}
+                        onKeyDown={handleInputKeyDown}
+                        required
+                      />
+                    </div>
+
+                    {/* Default & Sticky Height helper with quick selection chips */}
+                    <div className="rounded-2xl border border-cream-100/10 bg-black/25 p-3 text-xs backdrop-blur-md">
+                      <div className="flex items-center justify-between text-xs mb-2">
+                        <span className="text-cream-50/70">
+                          الارتفاع الافتراضي لـ «{LEVEL_CONFIG[unitForm.level]?.label || 'هذا المستوى'}»:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setUnitForm((p) => ({ ...p, height: String(defaultHeightForCurrentLevel) }))}
+                          className="font-bold text-amber-200 hover:text-amber-100 underline decoration-dotted transition"
+                          title="انقر لتطبيق الارتفاع الافتراضي لهذا المستوى"
+                        >
+                          {defaultHeightForCurrentLevel} {unitLabel}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-cream-100/10">
+                        <span className="text-[11px] text-cream-50/60 font-medium">خيارات سريعة:</span>
+                        {heightPresets.map((hVal) => (
+                          <button
+                            key={hVal}
+                            type="button"
+                            onClick={() => setUnitForm((p) => ({ ...p, height: String(hVal) }))}
+                            className={`rounded-lg px-2.5 py-1 text-xs font-bold tabular-nums transition ${
+                              String(unitForm.height) === String(hVal)
+                                ? 'bg-amber-400 text-wood-950 shadow ring-1 ring-amber-300 font-extrabold'
+                                : 'bg-black/30 border border-cream-100/10 text-cream-50/70 hover:text-cream-50 hover:bg-cream-50/10'
+                            }`}
+                          >
+                            {hVal} {unitLabel}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
 
                   {/* L-Shape only: extra length input */}
@@ -1368,6 +1959,7 @@ export default function Home() {
                         suffix={unitLabel}
                         value={unitForm.length}
                         onChange={updateUnitForm('length')}
+                        onKeyDown={handleInputKeyDown}
                         hint="مطلوب للقطعة حرف L: المساحة = (العرض + الطول) × الارتفاع"
                         required
                       />
@@ -1388,7 +1980,7 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <PrimaryButton id="add-unit-btn" type="submit" loading={addingUnit}>
+                  <PrimaryButton id="add-unit-btn" type="submit" loading={addingUnit} disabled={loading || addingUnit}>
                     {!addingUnit && <Icon name="plus" className="h-5 w-5" />}
                     {addingUnit
                       ? 'جارٍ الإضافة...'
@@ -1407,6 +1999,14 @@ export default function Home() {
           <div className="space-y-6 lg:col-span-8">
             {/* ---------- Section 3: Grand total ---------- */}
             <GrandTotalCard state={state} loading={loading} />
+
+            {/* ---------- Dedicated 3-column stats grid for Levels ---------- */}
+            <LevelsSummarySection
+              levels={state.levels}
+              grandTotalCost={state.grandTotalCost}
+              grandTotalArea={state.grandTotalArea}
+              loading={loading}
+            />
 
             {/* ---------- Section 3: Per-material breakdown ---------- */}
             <div className="flex items-center justify-between">

@@ -67,16 +67,48 @@ export async function saveData(data) {
   }
 }
 
+export const LEVEL_CONFIG = {
+  lower: { key: 'lower', label: 'القطع السفلية', shortLabel: 'سفلية' },
+  upper: { key: 'upper', label: 'القطع العلوية', shortLabel: 'علوية' },
+  third: { key: 'third', label: 'المستوى الثالث', shortLabel: 'مستوى ثالث' },
+};
+
+export const VALID_LEVELS = ['lower', 'upper', 'third'];
+
 export async function buildState() {
   const data = await loadData();
   const { materials, accessories } = data;
 
   const sortedMaterials = [...materials].sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated));
 
+  // Initialize breakdown by level
+  const levelsSummary = {
+    lower: { key: 'lower', label: 'القطع السفلية', totalArea: 0, totalCost: 0, unitCount: 0 },
+    upper: { key: 'upper', label: 'القطع العلوية', totalArea: 0, totalCost: 0, unitCount: 0 },
+    third: { key: 'third', label: 'المستوى الثالث', totalArea: 0, totalCost: 0, unitCount: 0 },
+  };
+
   const materialsOut = sortedMaterials.map((material) => {
-    const units = material.units;
+    const units = material.units.map((u) => {
+      const lvl = VALID_LEVELS.includes(u.level) ? u.level : 'lower';
+      return {
+        ...u,
+        level: lvl,
+        levelLabel: LEVEL_CONFIG[lvl]?.label || 'القطع السفلية',
+      };
+    });
+
     const totalArea = units.reduce((sum, u) => sum + u.area, 0);
     const totalCost = totalArea * material.pricePerMeter;
+
+    // Aggregate level totals across materials
+    units.forEach((u) => {
+      const lvl = u.level;
+      const unitCost = u.area * material.pricePerMeter;
+      levelsSummary[lvl].totalArea += u.area;
+      levelsSummary[lvl].totalCost += unitCost;
+      levelsSummary[lvl].unitCount += 1;
+    });
 
     return {
       id: material.id,
@@ -91,6 +123,12 @@ export async function buildState() {
     };
   });
 
+  // Round level summary values
+  Object.keys(levelsSummary).forEach((k) => {
+    levelsSummary[k].totalArea = round(levelsSummary[k].totalArea, 4);
+    levelsSummary[k].totalCost = round(levelsSummary[k].totalCost, 2);
+  });
+
   const materialsTotalArea = materialsOut.reduce((sum, m) => sum + m.totalArea, 0);
   const materialsTotalCost = materialsOut.reduce((sum, m) => sum + m.totalCost, 0);
   const accessoriesCost = accessories.reduce((sum, a) => sum + a.price, 0);
@@ -100,6 +138,7 @@ export async function buildState() {
     materials: materialsOut,
     accessories,
     unitTypes: Object.values(UNIT_TYPES),
+    levels: levelsSummary,
     totalMaterials: materialsOut.length,
     totalUnits: materialsOut.reduce((sum, m) => sum + m.unitsCount, 0),
     grandTotalArea: round(materialsTotalArea, 4),

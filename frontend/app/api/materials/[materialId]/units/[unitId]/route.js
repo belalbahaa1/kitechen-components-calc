@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { loadData, saveData, buildState, cleanText, toNumber, isPositive, UNIT_TYPES, describeCalculation, round } from '@/lib/db';
+import { loadData, saveData, buildState, cleanText, toNumber, isPositive, UNIT_TYPES, describeCalculation, round, LEVEL_CONFIG, VALID_LEVELS } from '@/lib/db';
 
 export async function PUT(req, { params }) {
   const { materialId, unitId } = params;
@@ -11,7 +11,7 @@ export async function PUT(req, { params }) {
   if (!unit) return NextResponse.json({ error: 'الوحدة غير موجودة' }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
-  const { name, width, height, length, measurementUnit = unit.measurementUnit } = body;
+  const { name, width, height, length, measurementUnit = unit.measurementUnit, level } = body;
   const typeDef = UNIT_TYPES[unit.type];
 
   const rawW = toNumber(width);
@@ -31,6 +31,10 @@ export async function PUT(req, { params }) {
   const unitStr = measurementUnit === 'cm' ? 'سم' : 'م';
 
   if (name !== undefined) unit.name = cleanText(name) || typeDef.label;
+  if (level !== undefined && VALID_LEVELS.includes(level)) {
+    unit.level = level;
+    unit.levelLabel = LEVEL_CONFIG[level]?.label || unit.levelLabel;
+  }
   unit.width = rawW;
   unit.height = rawH;
   unit.length = rawL;

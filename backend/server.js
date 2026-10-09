@@ -53,6 +53,26 @@ const UNIT_TYPES = {
   },
 };
 
+const LEVEL_CONFIG = {
+  lower: {
+    key: 'lower',
+    label: 'القطع السفلية',
+    shortLabel: 'سفلية',
+  },
+  upper: {
+    key: 'upper',
+    label: 'القطع العلوية',
+    shortLabel: 'علوية',
+  },
+  third: {
+    key: 'third',
+    label: 'المستوى الثالث',
+    shortLabel: 'مستوى ثالث',
+  },
+};
+
+const VALID_LEVELS = ['lower', 'upper', 'third'];
+
 let materials = [];
 let accessories = [];
 
@@ -84,11 +104,34 @@ const buildState = () => {
   // Sort materials by lastUpdated desc
   const sortedMaterials = [...materials].sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated));
 
+  // Initialize breakdown by level
+  const levelsSummary = {
+    lower: { key: 'lower', label: 'القطع السفلية', totalArea: 0, totalCost: 0, unitCount: 0 },
+    upper: { key: 'upper', label: 'القطع العلوية', totalArea: 0, totalCost: 0, unitCount: 0 },
+    third: { key: 'third', label: 'المستوى الثالث', totalArea: 0, totalCost: 0, unitCount: 0 },
+  };
+
   const materialsOut = sortedMaterials.map((material) => {
-    const units = material.units;
+    const units = material.units.map((u) => {
+      const lvl = VALID_LEVELS.includes(u.level) ? u.level : 'lower';
+      return {
+        ...u,
+        level: lvl,
+        levelLabel: LEVEL_CONFIG[lvl]?.label || 'القطع السفلية',
+      };
+    });
     
     const totalArea = units.reduce((sum, u) => sum + u.area, 0);
     const totalCost = totalArea * material.pricePerMeter;
+
+    // Aggregate level totals across materials
+    units.forEach((u) => {
+      const lvl = u.level;
+      const unitCost = u.area * material.pricePerMeter;
+      levelsSummary[lvl].totalArea += u.area;
+      levelsSummary[lvl].totalCost += unitCost;
+      levelsSummary[lvl].unitCount += 1;
+    });
 
     return {
       id: material.id,
@@ -103,6 +146,12 @@ const buildState = () => {
     };
   });
 
+  // Round level summary values
+  Object.keys(levelsSummary).forEach((k) => {
+    levelsSummary[k].totalArea = round(levelsSummary[k].totalArea, 4);
+    levelsSummary[k].totalCost = round(levelsSummary[k].totalCost, 2);
+  });
+
   const materialsTotalArea = materialsOut.reduce((sum, m) => sum + m.totalArea, 0);
   const materialsTotalCost = materialsOut.reduce((sum, m) => sum + m.totalCost, 0);
   const accessoriesCost = accessories.reduce((sum, a) => sum + a.price, 0);
@@ -112,6 +161,7 @@ const buildState = () => {
     materials: materialsOut,
     accessories,
     unitTypes: Object.values(UNIT_TYPES),
+    levels: levelsSummary,
     totalMaterials: materialsOut.length,
     totalUnits: materialsOut.reduce((sum, m) => sum + m.unitsCount, 0),
     grandTotalArea: round(materialsTotalArea, 4),
@@ -127,6 +177,10 @@ app.get('/api/state', (req, res) => {
 
 app.get('/api/unit-types', (req, res) => {
   res.json(Object.values(UNIT_TYPES));
+});
+
+app.get('/api/levels', (req, res) => {
+  res.json(Object.values(LEVEL_CONFIG));
 });
 
 app.post('/api/materials', (req, res) => {
@@ -182,11 +236,13 @@ app.post('/api/materials/:materialId/units', (req, res) => {
     return res.status(404).json({ error: 'الخامة غير موجودة' });
   }
 
-  const { type, name, width, height, length, measurementUnit = 'cm' } = req.body || {};
+  const { type, name, width, height, length, measurementUnit = 'cm', level = 'lower' } = req.body || {};
   const typeDef = UNIT_TYPES[type];
   if (!typeDef) {
     return res.status(400).json({ error: 'نوع الوحدة غير صالح' });
   }
+
+  const validLevel = VALID_LEVELS.includes(level) ? level : 'lower';
 
   const rawW = toNumber(width);
   const rawH = toNumber(height);
@@ -216,6 +272,8 @@ app.post('/api/materials/:materialId/units', (req, res) => {
     id: randomUUID(),
     type: typeDef.key,
     typeLabel: typeDef.label,
+    level: validLevel,
+    levelLabel: LEVEL_CONFIG[validLevel]?.label || 'القطع السفلية',
     name: cleanText(name) || typeDef.label,
     width: rawW,
     height: rawH,
@@ -268,7 +326,7 @@ app.put('/api/materials/:materialId/units/:unitId', (req, res) => {
     return res.status(404).json({ error: 'الوحدة غير موجودة' });
   }
 
-  const { name, width, height, length, measurementUnit = unit.measurementUnit } = req.body || {};
+  const { name, width, height, length, measurementUnit = unit.measurementUnit, level } = req.body || {};
   const typeDef = UNIT_TYPES[unit.type];
 
   const rawW = toNumber(width);
@@ -297,6 +355,10 @@ app.put('/api/materials/:materialId/units/:unitId', (req, res) => {
 
   if (name !== undefined) {
     unit.name = cleanText(name) || typeDef.label;
+  }
+  if (level !== undefined && VALID_LEVELS.includes(level)) {
+    unit.level = level;
+    unit.levelLabel = LEVEL_CONFIG[level]?.label || unit.levelLabel;
   }
   unit.width = rawW;
   unit.height = rawH;

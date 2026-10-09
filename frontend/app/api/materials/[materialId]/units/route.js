@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { loadData, saveData, buildState, cleanText, toNumber, isPositive, UNIT_TYPES, describeCalculation, round } from '@/lib/db';
+import { loadData, saveData, buildState, cleanText, toNumber, isPositive, UNIT_TYPES, describeCalculation, round, LEVEL_CONFIG, VALID_LEVELS } from '@/lib/db';
 import { randomUUID } from 'crypto';
 
 export async function POST(req, { params }) {
@@ -9,9 +9,11 @@ export async function POST(req, { params }) {
   if (!material) return NextResponse.json({ error: 'الخامة غير موجودة' }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
-  const { type, name, width, height, length, measurementUnit = 'cm' } = body;
+  const { type, name, width, height, length, measurementUnit = 'cm', level = 'lower' } = body;
   const typeDef = UNIT_TYPES[type];
   if (!typeDef) return NextResponse.json({ error: 'نوع الوحدة غير صالح' }, { status: 400 });
+
+  const validLevel = VALID_LEVELS.includes(level) ? level : 'lower';
 
   const rawW = toNumber(width);
   const rawH = toNumber(height);
@@ -32,6 +34,9 @@ export async function POST(req, { params }) {
   const unit = {
     id: randomUUID(),
     type,
+    typeLabel: typeDef.label,
+    level: validLevel,
+    levelLabel: LEVEL_CONFIG[validLevel]?.label || 'القطع السفلية',
     name: cleanText(name) || typeDef.label,
     width: rawW,
     height: rawH,
